@@ -1,0 +1,7 @@
+../Core/Src/ex1.c:11:9:crc8_sae_j1850	1
+../Core/Src/ex1.c:15:6:verify_checksum	1
+../Core/Src/ex1.c:20:6:verify_msg_counter	3
+../Core/Src/ex1.c:38:6:CAN2_prep_data_tx	1
+../Core/Src/ex1.c:45:6:CAN1_prep_data_tx	1
+../Core/Src/ex1.c:55:6:CAN2_SendMessage	1
+../Core/Src/ex1.c:65:6:CAN1_SendMessage	1
