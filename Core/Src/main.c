@@ -43,6 +43,8 @@
 CAN_HandleTypeDef hcan1;
 CAN_HandleTypeDef hcan2;
 
+TIM_HandleTypeDef htim1;
+
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
@@ -84,7 +86,7 @@ typedef enum{
 	STATE_READING_CAN2_RECEPTION
 }SystemState;
 
-SystemState currentState = STATE_IDLE;
+SystemState currentState = STATE_PREPARING_FOR_CAN2_TRANSMISSION;
 unsigned int TimeStamp;
 // maximum characters send out via UART is 30
 char bufsend[30]="XXX: D1 D2 D3 D4 D5 D6 D7 D8  ";
@@ -96,6 +98,7 @@ static void MX_GPIO_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_CAN2_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 void MX_CAN1_Setup();
 void MX_CAN2_Setup();
@@ -123,7 +126,8 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
         	}
         	currentState = STATE_READING_CAN1_RECEPTION;
         }
-    } else if (hcan->Instance == CAN2) {
+    }
+    if (hcan->Instance == CAN2) {
         if (currentState == STATE_CAN1_TRANSMISSION){
         	for (uint8_t i = 0; i < 8; i++){
         		CAN2_DATA_RX[i] = rxData[i];
@@ -132,7 +136,13 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
         }
 
     }
-
+}
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if(htim->Instance == TIM1)
+    {
+        if (currentState == STATE_IDLE) currentState = STATE_PREPARING_FOR_CAN2_TRANSMISSION;
+    }
 }
 /* USER CODE END 0 */
 
@@ -168,6 +178,7 @@ int main(void)
   MX_CAN1_Init();
   MX_CAN2_Init();
   MX_USART3_UART_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   MX_CAN1_Setup();
   MX_CAN2_Setup();
@@ -198,17 +209,13 @@ int main(void)
 	}
 	switch (currentState){
 		case STATE_IDLE:
-			//wait for 50ms to change into STATE_PREPARING_FOR_CAN2_TRANSMISSION
-
-			currentState =  STATE_PREPARING_FOR_CAN2_TRANSMISSION;
 			break;
 
 		case STATE_PREPARING_FOR_CAN2_TRANSMISSION:
-			CAN2_prep_data_tx(1,2);
-
-			CAN2_SendMessage(CAN2_DATA_TX);
-
 			currentState = STATE_CAN2_TRANSMISSION;
+			CAN2_prep_data_tx(1,2);
+			CAN2_SendMessage(CAN2_DATA_TX);
+			HAL_TIM_Base_Start_IT(&htim1);
 			break;
 
 		case STATE_CAN2_TRANSMISSION:
@@ -226,11 +233,10 @@ int main(void)
 
 		case STATE_PREPARING_FOR_CAN1_TRANSMISSION:
 			CAN1_prep_data_tx();
-			CAN1_SendMessage(CAN1_DATA_TX);
-			PrintCANLog(CAN1_pHeader.StdId, &CAN1_DATA_TX[0]);
-
-			//Print TX data to terminal
 			currentState = STATE_CAN1_TRANSMISSION;
+			CAN1_SendMessage(CAN1_DATA_TX);
+			//Print TX data to terminal
+
 			break;
 
 		case STATE_CAN1_TRANSMISSION:
@@ -242,6 +248,7 @@ int main(void)
 			//Check if checksum is correct or not
 
 			//Print RX Data to terminal
+
 			currentState = STATE_IDLE;
 			break;
 	}
@@ -331,7 +338,16 @@ static void MX_CAN1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN1_Init 2 */
-
+  	CAN1_sFilterConfig.SlaveStartFilterBank = 14;
+	CAN1_sFilterConfig.FilterBank = 0;
+	CAN1_sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+	CAN1_sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+	CAN1_sFilterConfig.FilterIdHigh = 0x0A2 << 5;
+	CAN1_sFilterConfig.FilterIdLow = 0x0000;
+	CAN1_sFilterConfig.FilterMaskIdHigh = 0x7FF << 5;
+	CAN1_sFilterConfig.FilterMaskIdLow = 0x0000;
+	CAN1_sFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
+	CAN1_sFilterConfig.FilterActivation = ENABLE;
   /* USER CODE END CAN1_Init 2 */
 
 }
@@ -368,8 +384,64 @@ static void MX_CAN2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN2_Init 2 */
+	//Cần config các setting của filter ở đây
+	CAN2_sFilterConfig.FilterBank = 14;
+	CAN2_sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+	CAN2_sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+	CAN2_sFilterConfig.FilterIdHigh = 0x012 << 5;
+	CAN2_sFilterConfig.FilterIdLow = 0x0000;
+	CAN2_sFilterConfig.FilterMaskIdHigh = 0x7FF << 5;
+	CAN2_sFilterConfig.FilterMaskIdLow = 0x0000;
+	CAN2_sFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
+	CAN2_sFilterConfig.FilterActivation = ENABLE;
 
   /* USER CODE END CAN2_Init 2 */
+
+}
+
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = (800-1);
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = (5000-1);
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
 
 }
 
@@ -455,24 +527,12 @@ static void MX_GPIO_Init(void)
 
 void MX_CAN1_Setup()
 {
-	//Cần config các setting của filter ở đây
-	CAN1_sFilterConfig.FilterBank = 0;
-	CAN1_sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
-	CAN1_sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
-	CAN1_sFilterConfig.FilterIdHigh = 0x0A2 << 5;
-	CAN1_sFilterConfig.FilterIdLow = 0x0000;
-	CAN1_sFilterConfig.FilterMaskIdHigh = 0x7FF << 5;
-	CAN1_sFilterConfig.FilterMaskIdLow = 0x0000;
-	CAN1_sFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
-	CAN1_sFilterConfig.FilterActivation = ENABLE;
-
 	HAL_CAN_ConfigFilter(&hcan1, &CAN1_sFilterConfig);
 	HAL_CAN_Start(&hcan1);
 	HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
 
 	//Cần config header của CAN1
     CAN1_pHeader.StdId = 0x012;                   // Set TX message ID
-    CAN1_pHeader.ExtId = 0x00;                    // Not used in standard ID
     CAN1_pHeader.IDE = CAN_ID_STD;                // Use standard ID
     CAN1_pHeader.RTR = CAN_RTR_DATA;              // Sending data, not a request
     CAN1_pHeader.DLC = 8;                         // 8 bytes of data
@@ -480,24 +540,12 @@ void MX_CAN1_Setup()
 }
 void MX_CAN2_Setup()
 {
-	//Cần config các setting của filter ở đây
-	CAN2_sFilterConfig.FilterBank = 14;
-	CAN2_sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
-	CAN2_sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
-	CAN2_sFilterConfig.FilterIdHigh = 0x012 << 5;
-	CAN2_sFilterConfig.FilterIdLow = 0x0000;
-	CAN2_sFilterConfig.FilterMaskIdHigh = 0x7FF << 5;
-	CAN2_sFilterConfig.FilterMaskIdLow = 0x0000;
-	CAN2_sFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0;
-	CAN2_sFilterConfig.FilterActivation = ENABLE;
-
 	HAL_CAN_ConfigFilter(&hcan2, &CAN2_sFilterConfig);
 	HAL_CAN_Start(&hcan2);
 	HAL_CAN_ActivateNotification(&hcan2, CAN_IT_RX_FIFO0_MSG_PENDING);
 
 	//Cần config header của CAN2
     CAN2_pHeader.StdId = 0x0A2;                   // Set TX message ID
-    CAN2_pHeader.ExtId = 0x00;                    // Not used in standard ID
     CAN2_pHeader.IDE = CAN_ID_STD;                // Use standard ID
     CAN2_pHeader.RTR = CAN_RTR_DATA;              // Sending data, not a request
     CAN2_pHeader.DLC = 8;                         // 8 bytes of data
