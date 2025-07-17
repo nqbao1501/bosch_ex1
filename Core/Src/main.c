@@ -76,6 +76,8 @@ uint8_t  Flg_Consecutive = 0;
 uint8_t msg_counter;
 uint8_t prev_msg_counter;
 
+
+
 typedef enum{
 	STATE_IDLE,
 	STATE_PREPARING_FOR_CAN2_TRANSMISSION,
@@ -89,7 +91,7 @@ typedef enum{
 SystemState currentState = STATE_PREPARING_FOR_CAN2_TRANSMISSION;
 unsigned int TimeStamp;
 // maximum characters send out via UART is 30
-char bufsend[30]="XXX: D1 D2 D3 D4 D5 D6 D7 D8  ";
+char bufsend[32]="XXX: D1 D2 D3 D4 D5 D6 D7 D8  ";
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -215,6 +217,7 @@ int main(void)
 			currentState = STATE_CAN2_TRANSMISSION;
 			CAN2_prep_data_tx(1,2);
 			CAN2_SendMessage(CAN2_DATA_TX);
+			PrintCANLog(CAN2_pHeader.StdId, CAN2_DATA_TX);
 			HAL_TIM_Base_Start_IT(&htim1);
 			break;
 
@@ -227,7 +230,8 @@ int main(void)
 			//Check if checksum is correct or not
 
 			//Print RX data to terminal
-
+			//PrintCANLog(CAN1_pHeaderRx.StdId, CAN1_DATA_RX);
+			//PrintCANLog(CAN2_pHeader.StdId, CAN2_DATA_TX);
 			currentState = STATE_PREPARING_FOR_CAN1_TRANSMISSION;
 			break;
 
@@ -236,7 +240,7 @@ int main(void)
 			currentState = STATE_CAN1_TRANSMISSION;
 			CAN1_SendMessage(CAN1_DATA_TX);
 			//Print TX data to terminal
-
+			PrintCANLog(CAN1_pHeader.StdId, CAN1_DATA_TX);
 			break;
 
 		case STATE_CAN1_TRANSMISSION:
@@ -248,7 +252,8 @@ int main(void)
 			//Check if checksum is correct or not
 
 			//Print RX Data to terminal
-
+			//PrintCANLog(CAN2_pHeaderRx.StdId, CAN2_DATA_RX);
+			//PrintCANLog(CAN1_pHeader.StdId, CAN1_DATA_TX);
 			currentState = STATE_IDLE;
 			break;
 	}
@@ -467,7 +472,7 @@ static void MX_USART3_UART_Init(void)
   huart3.Init.Parity = UART_PARITY_NONE;
   huart3.Init.Mode = UART_MODE_TX_RX;
   huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_8;
   if (HAL_UART_Init(&huart3) != HAL_OK)
   {
     Error_Handler();
@@ -560,35 +565,29 @@ void USART3_SendString(uint8_t *ch)
       ch++;
    }
 }
-void PrintCANLog(uint16_t CANID, uint8_t * CAN_Frame)
+void PrintCANLog(uint16_t CANID, uint8_t *CAN_Frame)
 {
-	uint16_t loopIndx = 0;
-	char bufID[6] = "   ";
-	char bufDat[4] = "  ";
-	char bufTime [8]="        ";
+    char bufsend[64];  // Safe enough size
+    uint16_t i = 0;
 
-	sprintf(bufTime,"%d",TimeStamp);
-	USART3_SendString((uint8_t*)bufTime);
-	USART3_SendString((uint8_t*)" ");
+    // Format timestamp
+    int len = sprintf(bufsend, "%d ", TimeStamp);
 
-	sprintf(bufID,"%X",CANID);
-	for(loopIndx = 0; loopIndx < 3; loopIndx ++)
-	{
-		bufsend[loopIndx]  = bufID[loopIndx];
-	}
-	bufsend[3] = ':';
-	bufsend[4] = ' ';
+    // Format CAN ID (always 3 digits, uppercase hex)
+    //len += sprintf(bufsend + len, "%03X: ", CANID & 0x7FF);  // mask to 11 bits
 
+    // Format 8 bytes of CAN data
+    //for (i = 0; i < 8; i++) {
+        //len += sprintf(bufsend + len, "%02X ", CAN_Frame[i]);
+    //}
 
-	for(loopIndx = 0; loopIndx < 8; loopIndx ++ )
-	{
-		sprintf(bufDat,"%02X",CAN_Frame[loopIndx]);
-		bufsend[loopIndx*3 + 5] = bufDat[0];
-		bufsend[loopIndx*3 + 6] = bufDat[1];
-		bufsend[loopIndx*3 + 7] = ' ';
-	}
-	bufsend[29] = '\n';
-	USART3_SendString((unsigned char*)bufsend);
+    // End with CRLF
+    bufsend[len++] = '\r';
+    bufsend[len++] = '\n';
+    bufsend[len] = '\0';
+
+    // Send over UART
+    USART3_SendString((uint8_t *)bufsend);
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
