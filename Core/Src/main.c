@@ -22,6 +22,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "ex1.h"
+#include <stdbool.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -73,8 +75,8 @@ uint8_t CAN2_DATA_RX[8] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
 uint16_t Num_Consecutive_Tester;
 uint8_t  Flg_Consecutive = 0;
 
-uint8_t msg_counter;
-uint8_t prev_msg_counter;
+uint8_t msg_counter = 0;
+uint8_t prev_msg_counter = 0;
 
 
 
@@ -85,13 +87,17 @@ typedef enum{
 	STATE_READING_CAN1_RECEPTION,
 	STATE_PREPARING_FOR_CAN1_TRANSMISSION,
 	STATE_CAN1_TRANSMISSION,
-	STATE_READING_CAN2_RECEPTION
+	STATE_READING_CAN2_RECEPTION,
+	STATE_ERROR
 }SystemState;
 
 SystemState currentState = STATE_PREPARING_FOR_CAN2_TRANSMISSION;
 unsigned int TimeStamp;
 // maximum characters send out via UART is 30
 char bufsend[32]="XXX: D1 D2 D3 D4 D5 D6 D7 D8  ";
+bool falsecounter = false;
+bool falsesum = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -144,6 +150,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     if(htim->Instance == TIM1)
     {
         if (currentState == STATE_IDLE) currentState = STATE_PREPARING_FOR_CAN2_TRANSMISSION;
+    }
+}
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == GPIO_PIN_0)
+    {
+    	if (falsesum) falsesum = false;
+    	else falsesum = true;
+
     }
 }
 /* USER CODE END 0 */
@@ -207,7 +222,6 @@ int main(void)
 	  MX_CAN2_Setup();
 	  USART3_SendString((uint8_t *)"-> IG ON \n");
 	  delay(20);
-	  prev_msg_counter = 0xFF;
 	}
 	switch (currentState){
 		case STATE_IDLE:
@@ -215,7 +229,7 @@ int main(void)
 
 		case STATE_PREPARING_FOR_CAN2_TRANSMISSION:
 			currentState = STATE_CAN2_TRANSMISSION;
-			CAN2_prep_data_tx(1,2);
+			CAN2_prep_data_tx(3,7);
 			CAN2_SendMessage(CAN2_DATA_TX);
 			PrintCANLog(CAN2_pHeader.StdId, CAN2_DATA_TX);
 			HAL_TIM_Base_Start_IT(&htim1);
@@ -227,12 +241,15 @@ int main(void)
 		case STATE_READING_CAN1_RECEPTION:
 			//verify msg_counter
 
-			//Check if checksum is correct or not
-
-			//Print RX data to terminal
-			//PrintCANLog(CAN1_pHeaderRx.StdId, CAN1_DATA_RX);
-			//PrintCANLog(CAN2_pHeader.StdId, CAN2_DATA_TX);
-			currentState = STATE_PREPARING_FOR_CAN1_TRANSMISSION;
+			if (!(verify_msg_counter()) ||  !(verify_checksum(CAN1_DATA_RX))){
+				currentState = STATE_IDLE;
+			}
+			else {
+				//Print RX data to terminal
+				//PrintCANLog(CAN1_pHeaderRx.StdId, CAN1_DATA_RX);
+				//PrintCANLog(CAN2_pHeader.StdId, CAN2_DATA_TX);
+				currentState = STATE_PREPARING_FOR_CAN1_TRANSMISSION;
+			}
 			break;
 
 		case STATE_PREPARING_FOR_CAN1_TRANSMISSION:
@@ -247,14 +264,28 @@ int main(void)
 			break;
 
 		case STATE_READING_CAN2_RECEPTION:
-			//verify msg_counter
-
 			//Check if checksum is correct or not
+			if (!verify_checksum(CAN2_DATA_RX)) {
+				currentState = STATE_ERROR;
+			}
 
-			//Print RX Data to terminal
-			//PrintCANLog(CAN2_pHeaderRx.StdId, CAN2_DATA_RX);
-			//PrintCANLog(CAN1_pHeader.StdId, CAN1_DATA_TX);
+			else if (!verify_msg_counter()) {
+				currentState = STATE_IDLE;
+			}
+
+			else {
+				//Print RX Data to terminal
+				//PrintCANLog(CAN2_pHeaderRx.StdId, CAN2_DATA_RX);
+				currentState = STATE_IDLE;
+			}
+			break;
+		case STATE_ERROR:
 			currentState = STATE_IDLE;
+			CAN2_prep_data_tx(0, 0);
+			CAN2_SendMessage(CAN2_DATA_TX);
+			prev_msg_counter = msg_counter;
+
+			PrintCANLog(CAN2_pHeader.StdId, CAN2_DATA_TX);
 			break;
 	}
   }
@@ -574,12 +605,12 @@ void PrintCANLog(uint16_t CANID, uint8_t *CAN_Frame)
     int len = sprintf(bufsend, "%d ", TimeStamp);
 
     // Format CAN ID (always 3 digits, uppercase hex)
-    //len += sprintf(bufsend + len, "%03X: ", CANID & 0x7FF);  // mask to 11 bits
+    len += sprintf(bufsend + len, "%03X: ", CANID & 0x7FF);  // mask to 11 bits
 
     // Format 8 bytes of CAN data
-    //for (i = 0; i < 8; i++) {
-        //len += sprintf(bufsend + len, "%02X ", CAN_Frame[i]);
-    //}
+    for (i = 0; i < 8; i++) {
+        len += sprintf(bufsend + len, "%02X ", CAN_Frame[i]);
+    }
 
     // End with CRLF
     bufsend[len++] = '\r';

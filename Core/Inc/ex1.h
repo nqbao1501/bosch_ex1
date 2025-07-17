@@ -16,6 +16,7 @@ extern uint8_t CAN1_DATA_RX[8];
 extern uint8_t CAN2_DATA_TX[8];
 extern uint8_t CAN2_DATA_RX[8];
 extern uint8_t msg_counter;
+extern bool falsesum;
 
 extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
@@ -26,7 +27,7 @@ extern uint8_t prev_msg_counter;
 
 uint8_t crc8_sae_j1850(uint8_t *data, uint8_t len);
 bool verify_checksum(uint8_t *data);
-bool verify_msg_counter(uint8_t current_msg_counter);
+bool verify_msg_counter();
 void CAN2_prep_data_tx(uint8_t value1, uint8_t value2);
 void CAN1_prep_data_tx();
 void CAN2_SendMessage(uint8_t* data);
